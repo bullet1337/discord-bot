@@ -1,5 +1,4 @@
 #!/usr/bin/python
-import asyncio
 import os
 import shutil
 from os import path
@@ -9,14 +8,19 @@ from discord.ext import commands
 from discord.ext.commands import Bot
 from pydub import AudioSegment
 
-from utils import add_music_command, VOLUME, init_bot, save_cfg
+from utils import add_music_command, init_bot, save_cfg
 
 AudioSegment.converter = 'ffmpeg.exe'
 
 TOKEN = 'MzcwODcyNDAzNDAxOTAwMDMz.DMtZZg.SiNxXQ7nOWhrSTzMk8aFcJxJQIs'
+ADMIN_IDS = ['263783673344557089', '239737410932572160']
 GREETINGS_DELAY = 0.1
 bot = Bot(command_prefix=commands.when_mentioned_or('!'))
 init_bot(bot)
+
+
+def check_user(ctx):
+    return ctx.message.author.id in ADMIN_IDS
 
 
 @bot.event
@@ -31,7 +35,7 @@ async def on_ready():
 async def echo(message):
     await bot.say('echo:%s' % message)
 
-
+"""
 @bot.event
 async def on_voice_state_update(before, after):
     if not before.bot and after.voice.voice_channel and before.voice.voice_channel != after.voice.voice_channel:
@@ -50,9 +54,11 @@ async def on_voice_state_update(before, after):
         bot.player.volume = VOLUME
         await asyncio.sleep(GREETINGS_DELAY)
         bot.player.start()
+"""
 
 
 @bot.command()
+@commands.check(check_user)
 async def add(command, url):
     if not path.exists(url):
         if path.exists(path.join(bot.COMMANDS_DIR, path.basename(url))):
@@ -82,6 +88,7 @@ async def add(command, url):
 
 
 @bot.command()
+@commands.check(check_user)
 async def remove(command):
     if bot.remove_command(command):
         bot.music_commands.pop(command, None)
@@ -94,7 +101,7 @@ async def remove(command):
 @bot.command()
 async def list():
     if bot.music_commands:
-        msg = 'Список комманд:\n'
+        msg = 'Список команд:\n'
     else:
         await bot.say('Список команд пуст')
         return
