@@ -15,6 +15,7 @@ class MusicBot(Bot):
     SCRIPT_DIR = path.dirname(path.realpath(__file__))
     CONFIG_PATH = path.join(SCRIPT_DIR, 'config.json')
     GREETINGS_DELAY = 0.1
+    VOLUME_STEP = 0.1
     TOKEN = 'MzcwODcyNDAzNDAxOTAwMDMz.DMtZZg.SiNxXQ7nOWhrSTzMk8aFcJxJQIs'
     ADMIN_IDS = ['263783673344557089', '239737410932572160', '242716686791344129']
 
@@ -89,6 +90,10 @@ class MusicBot(Bot):
                 self.player.volume = self.volume
                 self.player.start()
 
+    def get_volume_str(self):
+        volumes = int(self.volume / 0.1)
+        return '[' + '=' * volumes + '   ' * (20 - volumes) + '] %d%%' % (round(self.volume * 100))
+
 
 def create_bot():
     bot = MusicBot(command_prefix=commands.when_mentioned_or('!'))
@@ -124,6 +129,33 @@ def create_bot():
     @bot.command()
     async def echo(message):
         await bot.say('echo:%s' % message)
+
+    @bot.command()
+    async def vu():
+        bot.volume += MusicBot.VOLUME_STEP
+
+        if bot.volume > 2.0:
+            bot.volume = 2.0
+            await bot.say('Максимальная громкость')
+        await bot.say(bot.get_volume_str())
+
+    @bot.command()
+    async def vd():
+        bot.volume -= MusicBot.VOLUME_STEP
+
+        if bot.volume <= 0:
+            bot.volume = 0
+            await bot.say('Бота не слышно')
+        await bot.say(bot.get_volume_str())
+
+    @bot.command()
+    async def stop():
+        if bot.player:
+            bot.player.stop()
+
+    @bot.command()
+    async def v():
+        await bot.say(bot.get_volume_str())
 
     @bot.command()
     @commands.check(MusicBot.check_user)
