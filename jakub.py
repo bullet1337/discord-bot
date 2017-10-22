@@ -8,7 +8,7 @@ from os import path, makedirs
 from pydub import AudioSegment
 
 AudioSegment.converter = 'ffmpeg.exe'
-BASE_DIR = path.dirname(path.realpath(__file__))
+BASE_DIR = path.join(path.dirname(path.realpath(__file__)), 'jakub')
 AUDIO_DIR = path.join(BASE_DIR, 'audio')
 if not path.exists(AUDIO_DIR):
     makedirs(AUDIO_DIR)
@@ -34,22 +34,17 @@ def concat(numbers, outfile):
         file -= file.dBFS - DBFS
         result += file
 
-    file = RES_DIR + outfile + '_' + str(int(time.time())) + '.mp3'
+    file = path.join(RES_DIR, outfile + '_' + str(int(time.time())) + '.mp3')
     result.export(file, format='mp3')
     return file
-    # result.reverse().export(RES_DIR + 'reversed_' + outfile + '.mp3', format='mp3')
 
 
 def jakub_helper(x):
-    # print(x, end=' ')
     if audio_map.get(x):
-        # print('OK: %d' % len(x))
         return [x]
     elif len(x) == 1:
-        # print('NOT FOUND, END')
         return None
     else:
-        # print('NOT FOUND, SPLIT\n')
         best = len(x) + 1
         best_split = None
         for i in range(1, len(x)):
@@ -57,12 +52,10 @@ def jakub_helper(x):
             if second.replace('0', '') == '':
                 continue
 
-            # print(first, second)
             first, second = jakub_helper(first), jakub_helper(second)
             if first is None or second is None:
                 continue
             else:
-                # print('%s OK: %d\n' % (x, len(first) + len(second)))
                 if len(first) + len(second) < best:
                     best = len(first) + len(second)
                     best_split = first
