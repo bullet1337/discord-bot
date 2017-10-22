@@ -10,6 +10,8 @@ from discord.ext import commands
 from discord.ext.commands import Bot
 from pydub import AudioSegment
 
+from jakub import seidisnilyu
+
 
 class MusicBot(Bot):
     SCRIPT_DIR = path.dirname(path.realpath(__file__))
@@ -79,20 +81,22 @@ class MusicBot(Bot):
     def add_music_command(self, command):
         @self.command(name=command, pass_context=True)
         async def play_command(ctx):
-            user = ctx.message.author
-            if user.voice_channel:
-                if self.player:
-                    self.player.stop()
-
-                await self.join_channel(user.voice_channel)
-
-                self.player = self.voice_channel.create_ffmpeg_player(self.music_commands[command])
-                self.player.volume = self.volume
-                self.player.start()
+            await self.play(ctx.message.author.voice_channel, self.music_commands[command])
 
     def get_volume_str(self):
         volumes = int(self.volume / 0.1)
         return '[' + '=' * volumes + '   ' * (20 - volumes) + '] %d%%' % (round(self.volume * 100))
+
+    async def play(self, channel, file):
+        if channel:
+            if self.player:
+                self.player.stop()
+
+            await self.join_channel(channel)
+
+            self.player = self.voice_channel.create_ffmpeg_player(file)
+            self.player.volume = self.volume
+            self.player.start()
 
 
 def create_bot():
@@ -201,10 +205,12 @@ def create_bot():
         await bot.say('Список команд:\n%s' % '\t'.join(sorted(bot.music_commands)) if bot.music_commands else
                       'Список команд пуст')
 
+    @bot.command(pass_context=True)
+    async def jakub(ctx, a):
+        await bot.play(ctx.message.author.voice_channel, seidisnilyu(a))
+
     return bot
 
 if __name__ == '__main__':
     create_bot().run()
-# TODO VOLUME
 # TODO INTRO OUTRO
-# TODO JAKUB
