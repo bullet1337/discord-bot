@@ -6,6 +6,7 @@ import shutil
 from os import path
 from urllib import request
 
+from discord import Member
 from discord.ext import commands
 from discord.ext.commands import Bot
 from pydub import AudioSegment
@@ -21,7 +22,7 @@ class MusicBot(Bot):
     TOKEN = 'MzcwODcyNDAzNDAxOTAwMDMz.DMtZZg.SiNxXQ7nOWhrSTzMk8aFcJxJQIs'
     ADMIN_IDS = ['263783673344557089', '239737410932572160', '242716686791344129']
 
-    def __init__(self, command_prefix, formatter=None, description=None, pm_help=False, **options):
+    def __init__(self, command_prefix, **options):
         super().__init__(command_prefix, formatter=None, description=None, pm_help=False, **options)
         AudioSegment.converter = 'ffmpeg.exe'
 
@@ -33,15 +34,16 @@ class MusicBot(Bot):
         cfg = MusicBot.load_cfg()
         self.MUSIC_DIR = path.join(MusicBot.SCRIPT_DIR, cfg.get('MUSIC_DIR', 'music'))
         self.COMMANDS_DIR = path.join(self.MUSIC_DIR, cfg.get('COMMANDS_DIR', 'command'))
-        self.ENTRANCES_DIR = path.join(self.MUSIC_DIR, cfg.get('ENTRANCES_DIR', 'entrance'))
+        self.USERS_DIR = path.join(self.MUSIC_DIR, cfg.get('USERS_DIR', 'users'))
         if not path.exists(self.MUSIC_DIR):
             os.makedirs(self.MUSIC_DIR)
             os.makedirs(self.COMMANDS_DIR)
-            os.makedirs(self.ENTRANCES_DIR)
+            os.makedirs(self.USERS_DIR)
         for command in cfg.get('commands', []):
             if command['type'] == 'command':
                 self.music_commands[command['command']] = path.join(self.COMMANDS_DIR, command['file'])
                 self.add_music_command(command['command'])
+        self.users_music = cfg.get('users', {})
 
     @staticmethod
     def check_user(ctx):
@@ -51,11 +53,12 @@ class MusicBot(Bot):
         cfg = {
             'MUSIC_DIR': path.basename(self.MUSIC_DIR),
             'COMMANDS_DIR': path.basename(self.COMMANDS_DIR),
-            'ENTRANCES_DIR': path.basename(self.ENTRANCES_DIR),
+            'USERS_DIR': path.basename(self.USERS_DIR),
             'commands': [
                 {'type': 'command', 'command': command, 'file': os.path.basename(file)}
                 for command, file in self.music_commands.items()
-                ]
+            ],
+            'users': self.users_music
         }
 
         with open(MusicBot.CONFIG_PATH, mode='w', encoding='utf8') as file:
@@ -87,6 +90,27 @@ class MusicBot(Bot):
         volumes = int(self.volume / 0.1)
         return '[' + '=' * volumes + '   ' * (20 - volumes) + '] %d%%' % (round(self.volume * 100))
 
+    def check_music_url(self, url):
+        if not path.exists(url):
+            if path.exists(path.join(self.COMMANDS_DIR, path.basename(url))):
+                url = path.join(self.COMMANDS_DIR, path.basename(url))
+            else:
+                try:
+                    with request.urlopen(url) as response, open(path.basename(url), 'wb') as out_file:
+                        shutil.copyfileobj(response, out_file)
+                    url = path.basename(url)
+                except Exception as e:
+                    print(e)
+                    return None
+
+        try:
+            extension = os.path.splitext(url)[1][1:].strip().lower()
+            AudioSegment.from_file(url, extension)
+            return url
+        except Exception as e:
+            print(e)
+            return None
+
     async def play(self, channel, file):
         if channel:
             if self.player:
@@ -97,6 +121,25 @@ class MusicBot(Bot):
             self.player = self.voice_channel.create_ffmpeg_player(file)
             self.player.volume = self.volume
             self.player.start()
+
+    async def add_user_music(self, user, url, intro=True):
+        url = self.check_music_url(url)
+        if url is None:
+            await self.say('Ошибка')
+        else:
+            suffix = 'intro' if intro else 'outro'
+            user_file = path.join(self.USERS_DIR, '%s_%s.mp3' % (user.id, suffix))
+            if path.dirname(url) == self.COMMANDS_DIR:
+                shutil.copy2(url, user_file)
+            else:
+                shutil.move(url, user_file)
+            user_music = self.users_music.get(user.id)
+            if user_music:
+                user_music[suffix] = user_file
+            else:
+                self.users_music[user.id] = {suffix: user_file}
+            await self.say('%s %s для пользователя "%s" добавлено' % (suffix, path.basename(url), user.name))
+            await self.save_cfg()
 
 
 def create_bot():
@@ -118,23 +161,31 @@ def create_bot():
 
             await bot.join_channel(after.voice_channel or before.voice_channel)
 
-            if after.server_permissions.administrator:
-                music = 'https://goxash.tk/sounds/arthas.mp3'  # 'omae wa - mo shindeiru.mp3'
-            elif after.id == '263783673344557089':
-                music = os.path.join(bot.ENTRANCES_DIR, 'bullet.mp3' if after.voice_channel else 'vse.mp3')
-            else:
-                music = os.path.join(bot.ENTRANCES_DIR,
-                                     'AND HIS NAME IS - JOHN CENA.mp3' if after.voice_channel else 'vse.mp3')
-            bot.player = bot.voice_channel.create_ffmpeg_player(music)
-            bot.player.volume = bot.volume
-            await asyncio.sleep(MusicBot.GREETINGS_DELAY)
-            bot.player.start()
+            user_music = bot.users_music.get(before.id)
+            if user_music:
+                user_music = user_music.get('intro' if after.voice_channel else 'outro')
+                if user_music:
+                    bot.player = bot.voice_channel.create_ffmpeg_player(user_music)
+                    bot.player.volume = bot.volume
+                    await asyncio.sleep(MusicBot.GREETINGS_DELAY)
+                    bot.player.start()
+
+    @bot.command()
+    @commands.check(MusicBot.check_user)
+    async def intro(user: Member, url):
+        await bot.add_user_music(user, url, True)
+
+    @bot.command()
+    @commands.check(MusicBot.check_user)
+    async def outro(user: Member, url):
+        await bot.add_user_music(user, url, False)
 
     @bot.command()
     async def echo(message):
         await bot.say('echo:%s' % message)
 
     @bot.command()
+    @commands.check(MusicBot.check_user)
     async def vu():
         bot.volume += MusicBot.VOLUME_STEP
 
@@ -144,6 +195,7 @@ def create_bot():
         await bot.say(bot.get_volume_str())
 
     @bot.command()
+    @commands.check(MusicBot.check_user)
     async def vd():
         bot.volume -= MusicBot.VOLUME_STEP
 
@@ -153,6 +205,7 @@ def create_bot():
         await bot.say(bot.get_volume_str())
 
     @bot.command()
+    @commands.check(MusicBot.check_user)
     async def stop():
         if bot.player:
             bot.player.stop()
@@ -164,23 +217,13 @@ def create_bot():
     @bot.command()
     @commands.check(MusicBot.check_user)
     async def add(command, url):
-        if not path.exists(url):
-            if path.exists(path.join(bot.COMMANDS_DIR, path.basename(url))):
-                url = path.join(bot.COMMANDS_DIR, path.basename(url))
-            else:
-                with request.urlopen(url) as response, open(path.basename(url), 'wb') as out_file:
-                    shutil.copyfileobj(response, out_file)
-                url = path.basename(url)
-
-        try:
-            extension = os.path.splitext(url)[1][1:].strip().lower()
-            AudioSegment.from_file(url, extension)
-            command_file = path.join(bot.COMMANDS_DIR, path.basename(url))
-            shutil.move(url, command_file)
-        except Exception as e:
-            print(e)
+        url = bot.check_music_url(url)
+        if url is None:
             await bot.say('Ошибка')
             return
+
+        command_file = path.join(bot.COMMANDS_DIR, path.basename(url))
+        shutil.move(url, command_file)
 
         if command not in bot.commands:
             bot.music_commands[command] = command_file
@@ -213,4 +256,3 @@ def create_bot():
 
 if __name__ == '__main__':
     create_bot().run()
-# TODO INTRO OUTRO
