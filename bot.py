@@ -13,6 +13,7 @@ from discord import Member
 from discord.ext import commands
 from discord.ext.commands import Bot
 from pydub import AudioSegment
+from transliterate import translit
 
 from jakub import seidisnilyu
 
@@ -274,9 +275,16 @@ def create_bot():
 
     @bot.event
     async def on_command_error(event_method, ctx):
-        command = re.sub(r'([aeuioауеэоаыяию])+$', r'\1', ctx.invoked_with)
-        command = min(ctx.bot.music_commands.keys(), key=lambda x: editdistance.eval(command, x))
-        await bot.play(ctx.message.author.voice_channel, ctx.bot.music_commands[command])
+        command = re.sub(r'([aeuioауеэоаыяию])+$', r'\1', ctx.invoked_with, flags=re.IGNORECASE)
+        command1 = min(ctx.bot.music_commands.keys(), key=lambda x: editdistance.eval(command, x))
+        min1 = editdistance.eval(command, command1)
+
+        command = translit(command, 'ru', reversed=re.fullmatch('[а-яА-Я0-9 -_]+', command))
+        command2 = min(ctx.bot.music_commands.keys(), key=lambda x: editdistance.eval(command, x))
+        min2 = editdistance.eval(command, command2)
+
+        await bot.play(ctx.message.author.voice_channel,
+                       ctx.bot.music_commands[command1 if min1 <= min2 else command2])
 
     return bot
 
