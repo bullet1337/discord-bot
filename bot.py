@@ -6,6 +6,7 @@ import shutil
 from os import path
 from urllib import request
 
+import youtube_dl as youtube_dl
 from discord import Member
 from discord.ext import commands
 from discord.ext.commands import Bot
@@ -96,9 +97,26 @@ class MusicBot(Bot):
                 url = path.join(self.COMMANDS_DIR, path.basename(url))
             else:
                 try:
-                    with request.urlopen(url) as response, open(path.basename(url), 'wb') as out_file:
-                        shutil.copyfileobj(response, out_file)
-                    url = path.basename(url)
+                    if 'youtube' in url:
+                        ydl_opts = {
+                            'format': 'bestaudio/best',
+                            'postprocessors': [
+                                {
+                                    'key': 'FFmpegExtractAudio',
+                                    'preferredcodec': 'mp3',
+                                    'preferredquality': '320',
+                                }
+                            ],
+                            'outtmpl': path.basename(url).replace('?', '_') + '.%(ext)s'
+                        }
+                        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([url])
+                        url = '%s.%s' % (path.splitext(ydl_opts['outtmpl'])[0],
+                                         ydl_opts['postprocessors'][0]['preferredcodec'])
+                    else:
+                        with request.urlopen(url) as response, open(path.basename(url), 'wb') as out_file:
+                            shutil.copyfileobj(response, out_file)
+                        url = path.basename(url)
                 except Exception as e:
                     print(e)
                     return None
