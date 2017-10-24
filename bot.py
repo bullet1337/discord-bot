@@ -2,10 +2,12 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 from os import path
 from urllib import request
 
+import editdistance as editdistance
 import youtube_dl as youtube_dl
 from discord import Member
 from discord.ext import commands
@@ -269,6 +271,12 @@ def create_bot():
     @bot.command(pass_context=True)
     async def jakub(ctx, a):
         await bot.play(ctx.message.author.voice_channel, seidisnilyu(a))
+
+    @bot.event
+    async def on_command_error(event_method, ctx):
+        command = re.sub(r'([aeuioауеэоаыяию])+$', r'\1', ctx.invoked_with)
+        command = min(ctx.bot.music_commands.keys(), key=lambda x: editdistance.eval(command, x))
+        await bot.play(ctx.message.author.voice_channel, ctx.bot.music_commands[command])
 
     return bot
 
