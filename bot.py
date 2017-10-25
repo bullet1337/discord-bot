@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+from datetime import datetime
 from os import path
 from urllib import request
 
@@ -21,6 +22,7 @@ from jakub import seidisnilyu
 class MusicBot(Bot):
     SCRIPT_DIR = path.dirname(path.realpath(__file__))
     CONFIG_PATH = path.join(SCRIPT_DIR, 'config.json')
+    SWITCH_TIME = 5
     GREETINGS_DELAY = 0.1
     VOLUME_STEP = 0.1
     TOKEN = 'MzcwODcyNDAzNDAxOTAwMDMz.DMtZZg.SiNxXQ7nOWhrSTzMk8aFcJxJQIs'
@@ -34,14 +36,16 @@ class MusicBot(Bot):
         self.volume = 0.3
         self.player = None
         self.music_commands = {}
+        self.users_entries = {}
 
         cfg = MusicBot.load_cfg()
         self.MUSIC_DIR = path.join(MusicBot.SCRIPT_DIR, cfg.get('MUSIC_DIR', 'music'))
         self.COMMANDS_DIR = path.join(self.MUSIC_DIR, cfg.get('COMMANDS_DIR', 'command'))
         self.USERS_DIR = path.join(self.MUSIC_DIR, cfg.get('USERS_DIR', 'users'))
-        if not path.exists(self.MUSIC_DIR):
-            os.makedirs(self.MUSIC_DIR)
+        self.UTILS_DIR = path.join(self.MUSIC_DIR, 'utils')
+        if not path.exists(self.COMMANDS_DIR):
             os.makedirs(self.COMMANDS_DIR)
+        if not path.exists(self.USERS_DIR):
             os.makedirs(self.USERS_DIR)
         for command in cfg.get('commands', []):
             if command['type'] == 'command':
@@ -176,6 +180,13 @@ def create_bot():
     @bot.event
     async def on_voice_state_update(before, after):
         if not before.bot and before.voice_channel != after.voice_channel:
+            if after.voice_channel:
+                last_entry = bot.users_entries.get(after.voice_channel)
+                bot.users_entries[after.voice_channel] = datetime.now()
+                if last_entry and (bot.users_entries[after.voice_channel] - last_entry).seconds <= MusicBot.SWITCH_TIME:
+                    await bot.play(after.voice_channel, path.join(bot.UTILS_DIR, 'ugomonis.mp3'))
+                    return
+
             if bot.player:
                 bot.player.stop()
             print('%s: %s -> %s' % (before.name, before.voice_channel, after.voice_channel))
