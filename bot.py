@@ -2,8 +2,11 @@
 import asyncio
 import json
 import os
+import random
 import re
 import shutil
+import time
+from collections import defaultdict
 from datetime import datetime
 from os import path
 from urllib import request
@@ -13,6 +16,7 @@ import youtube_dl as youtube_dl
 from discord import Member
 from discord.ext import commands
 from discord.ext.commands import Bot
+from gtts import gTTS
 from pydub import AudioSegment
 from transliterate import translit
 
@@ -25,8 +29,14 @@ class MusicBot(Bot):
     SWITCH_TIME = 5
     GREETINGS_DELAY = 0.1
     VOLUME_STEP = 0.1
+    DBFS = -10
     TOKEN = 'MzcwODcyNDAzNDAxOTAwMDMz.DMtZZg.SiNxXQ7nOWhrSTzMk8aFcJxJQIs'
     ADMIN_IDS = ['263783673344557089', '239737410932572160', '242716686791344129']
+    warnings_map = {
+        1: 'ugomonis',
+        2: 'ostanovis',
+        3: 'final'
+    }
 
     def __init__(self, command_prefix, **options):
         super().__init__(command_prefix, formatter=None, description=None, pm_help=False, **options)
@@ -37,6 +47,7 @@ class MusicBot(Bot):
         self.player = None
         self.music_commands = {}
         self.users_entries = {}
+        self.users_warnings = defaultdict(int)
 
         cfg = MusicBot.load_cfg()
         self.MUSIC_DIR = path.join(MusicBot.SCRIPT_DIR, cfg.get('MUSIC_DIR', 'music'))
@@ -52,6 +63,7 @@ class MusicBot(Bot):
                 self.music_commands[command['command']] = path.join(self.COMMANDS_DIR, command['file'])
                 self.add_music_command(command['command'])
         self.users_music = cfg.get('users', {})
+
 
     @staticmethod
     def check_user(ctx):
@@ -136,14 +148,20 @@ class MusicBot(Bot):
             print(e)
             return None
 
-    async def play(self, channel, file):
+    async def tts(self, channel, text):
+        temp_file = path.join(self.UTILS_DIR, '%d.mp3' % random.randint(0, 10000))
+        gTTS(text=text, lang='ru').save(temp_file)
+        await self.play(channel, temp_file, True)
+
+    async def play(self, channel, file, delete=False):
         if channel:
             if self.player:
                 self.player.stop()
 
             await self.join_channel(channel)
 
-            self.player = self.voice_channel.create_ffmpeg_player(file)
+            self.player = self.voice_channel.create_ffmpeg_player(file,
+                                                                  after=lambda: os.remove(file) if delete else None)
             self.player.volume = self.volume
             self.player.start()
 
@@ -166,6 +184,30 @@ class MusicBot(Bot):
             await self.say('%s %s для пользователя "%s" добавлено' % (suffix, path.basename(url), user.name))
             await self.save_cfg()
 
+    @staticmethod
+    def concat(infiles, outfile):
+        files = [AudioSegment.from_mp3(infile) for infile in infiles if path.exists(infile)]
+
+        result = AudioSegment.empty()
+        for file in files:
+            file -= file.dBFS - MusicBot.DBFS
+            result += file
+
+        result.export(outfile, format='mp3')
+        return outfile
+
+    def create_phrase(self, template, data):
+       temp_file = path.join(self.UTILS_DIR, '%d_%d.mp3' % (random.randint(0, 10000), int(round(time.time() * 1000))))
+       gTTS(text=data, lang='ru').save(temp_file)
+       return MusicBot.concat(
+           [
+               path.join(self.UTILS_DIR, '%s_prefix.mp3' % template),
+               temp_file,
+               path.join(self.UTILS_DIR, '%s_suffix.mp3' % template)
+           ],
+           temp_file
+       )
+
 
 def create_bot():
     bot = MusicBot(command_prefix=commands.when_mentioned_or('!'))
@@ -184,7 +226,12 @@ def create_bot():
                 last_entry = bot.users_entries.get(after.voice_channel)
                 bot.users_entries[after.voice_channel] = datetime.now()
                 if last_entry and (bot.users_entries[after.voice_channel] - last_entry).seconds <= MusicBot.SWITCH_TIME:
-                    await bot.play(after.voice_channel, path.join(bot.UTILS_DIR, 'ugomonis.mp3'))
+                    bot.users_warnings[after.id] += 1
+                    await bot.play(after.voice_channel,
+                                   bot.create_phrase(bot.warnings_map[bot.users_warnings[after.id]], after.name),
+                                   True)
+                    if bot.users_warnings[after.id] >= 3:
+                        bot.users_warnings[after.id] = 0
                     return
 
             if bot.player:
@@ -201,6 +248,9 @@ def create_bot():
                     bot.player.volume = bot.volume
                     await asyncio.sleep(MusicBot.GREETINGS_DELAY)
                     bot.player.start()
+                else:
+                    await bot.tts(after.voice_channel, '%s %s' % ('Привет' if after.voice_channel else 'Пока',
+                                                                  after.name))
 
     @bot.command()
     @commands.check(MusicBot.check_user)
