@@ -184,8 +184,7 @@ class MusicBot(Bot):
             await self.say('%s %s для пользователя "%s" добавлено' % (suffix, path.basename(url), user.name))
             await self.save_cfg()
 
-    @staticmethod
-    def concat(infiles, outfile):
+    def concat(self, infiles, outfile):
         files = [AudioSegment.from_mp3(infile) for infile in infiles if path.exists(infile)]
 
         result = AudioSegment.empty()
@@ -197,16 +196,16 @@ class MusicBot(Bot):
         return outfile
 
     def create_phrase(self, template, data):
-       temp_file = path.join(self.UTILS_DIR, '%d_%d.mp3' % (random.randint(0, 10000), int(round(time.time() * 1000))))
-       gTTS(text=data, lang='ru').save(temp_file)
-       return MusicBot.concat(
-           [
-               path.join(self.UTILS_DIR, '%s_prefix.mp3' % template),
-               temp_file,
-               path.join(self.UTILS_DIR, '%s_suffix.mp3' % template)
-           ],
-           temp_file
-       )
+        temp_file = path.join(self.UTILS_DIR, '%d_%d.mp3' % (random.randint(0, 10000), int(round(time.time() * 1000))))
+        gTTS(text=data, lang='ru').save(temp_file)
+        return self.concat(
+            [
+                path.join(self.UTILS_DIR, '%s_prefix.mp3' % template),
+                temp_file,
+                path.join(self.UTILS_DIR, '%s_suffix.mp3' % template)
+            ],
+            temp_file
+        )
 
 
 def create_bot():
@@ -248,9 +247,11 @@ def create_bot():
                     bot.player.volume = bot.volume
                     await asyncio.sleep(MusicBot.GREETINGS_DELAY)
                     bot.player.start()
-                else:
-                    await bot.tts(after.voice_channel, '%s %s' % ('Привет' if after.voice_channel else 'Пока',
-                                                                  after.name))
+                    return
+
+            await asyncio.sleep(MusicBot.GREETINGS_DELAY)
+            await bot.tts(after.voice_channel, '%s %s' % ('Привет' if after.voice_channel else 'Пока',
+                                                          after.name))
 
     @bot.command()
     @commands.check(MusicBot.check_user)
