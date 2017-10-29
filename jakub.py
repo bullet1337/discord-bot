@@ -3,11 +3,12 @@ import random
 import re
 import time
 from collections import defaultdict
+import os
 from os import path, makedirs
 
 from pydub import AudioSegment
 
-AudioSegment.converter = 'ffmpeg.exe'
+AudioSegment.converter = 'ffmpeg' if os.name == 'posix' else 'ffmpeg.exe'
 BASE_DIR = path.join(path.dirname(path.realpath(__file__)), 'jakub')
 AUDIO_DIR = path.join(BASE_DIR, 'audio')
 if not path.exists(AUDIO_DIR):
@@ -17,7 +18,7 @@ if not path.exists(RES_DIR):
     makedirs(RES_DIR)
 DBFS = -10
 
-audio_files = glob.glob(AUDIO_DIR + '\\*.mp3')
+audio_files = glob.glob(AUDIO_DIR + os.path.sep + '*.mp3')
 audio_map = defaultdict(list)
 for file in audio_files:
     number = re.match('([a-z\d]+)[ \.]', path.basename(file)).groups()[0]

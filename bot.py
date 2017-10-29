@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3.5
 import asyncio
 import json
 import os
@@ -40,7 +40,7 @@ class MusicBot(Bot):
 
     def __init__(self, command_prefix, **options):
         super().__init__(command_prefix, formatter=None, description=None, pm_help=False, **options)
-        AudioSegment.converter = 'ffmpeg.exe'
+        AudioSegment.converter = 'ffmpeg' if os.name == 'posix' else 'ffmpeg.exe'
 
         self.voice_channel = None
         self.volume = 0.3
