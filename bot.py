@@ -59,17 +59,41 @@ class MusicBot(Bot):
         if not path.exists(self.USERS_DIR):
             os.makedirs(self.USERS_DIR)
         for command in cfg.get('commands', []):
-            if command['type'] == 'command':
+            if command['type'] == 'command' and path.exists(path.join(self.COMMANDS_DIR, command['file'])):
                 self.music_commands[command['command']] = path.join(self.COMMANDS_DIR, command['file'])
                 self.add_music_command(command['command'])
+        music_files = set(self.music_commands.values())
+        for file in os.listdir(self.COMMANDS_DIR):
+            file = path.join(self.COMMANDS_DIR, file)
+            if path.isfile(file):
+                command = os.path.splitext(os.path.basename(file))[0]
+                if command not in self.music_commands and file not in music_files \
+                        and not re.findall('[ \t\n]', command):
+                    self.music_commands[command] = file
+                    self.add_music_command(command)
+
         self.users_music = cfg.get('users', {})
+        for file in os.listdir(self.USERS_DIR):
+            file = path.join(self.USERS_DIR, file)
+            if path.isfile(file):
+                command = os.path.splitext(os.path.basename(file))[0].split('_')
+                if len(command) == 2:
+                    user_id = command[0]
+                    type = command[1]
+                    if user_id not in self.users_music or type not in self.users_music[user_id]:
+                        if user_id not in self.users_music:
+                            self.users_music[user_id] = {}
+
+                        self.users_music[user_id][type] = os.path.basename(file)
+
+        self.save_cfg()
 
 
     @staticmethod
     def check_user(ctx):
         return ctx.message.author.id in MusicBot.ADMIN_IDS
 
-    async def save_cfg(self):
+    def save_cfg(self):
         cfg = {
             'MUSIC_DIR': path.basename(self.MUSIC_DIR),
             'COMMANDS_DIR': path.basename(self.COMMANDS_DIR),
@@ -82,7 +106,7 @@ class MusicBot(Bot):
         }
 
         with open(MusicBot.CONFIG_PATH, mode='w', encoding='utf8') as file:
-            json.dump(cfg, file, indent=4)
+            json.dump(cfg, file, indent=4, ensure_ascii=False)
 
     @staticmethod
     def load_cfg():
@@ -160,8 +184,10 @@ class MusicBot(Bot):
 
             await self.join_channel(channel)
 
-            self.player = self.voice_channel.create_ffmpeg_player(file,
-                                                                  after=lambda: os.remove(file) if delete else None)
+            after = None
+            if delete:
+                after = lambda: os.remove(file)
+            self.player = self.voice_channel.create_ffmpeg_player(file, after=after)
             self.player.volume = self.volume
             self.player.start()
 
@@ -180,9 +206,21 @@ class MusicBot(Bot):
             if user_music:
                 user_music[suffix] = user_file
             else:
-                self.users_music[user.id] = {suffix: user_file}
+                self.users_music[user.id] = {suffix: path.basename(user_file)}
             await self.say('%s %s для пользователя "%s" добавлено' % (suffix, path.basename(url), user.name))
-            await self.save_cfg()
+            self.save_cfg()
+
+    async def remove_user_music(self, user, intro=True):
+        suffix = 'intro' if intro else 'outro'
+        if user.id in self.users_music and suffix in self.users_music[user.id]:
+            #os.remove(path.join(self.USERS_DIR, '%s_%s.mp3' % (user.id, suffix)))
+            await self.say('%s для пользователя "%s" удалено' % (suffix, user.name))
+            self.users_music[user.id].pop(suffix)
+
+            if not self.users_music[user.id]:
+                self.users_music.pop(user.id)
+
+        self.save_cfg()
 
     def concat(self, infiles, outfile):
         files = [AudioSegment.from_mp3(infile) for infile in infiles if path.exists(infile)]
@@ -240,16 +278,15 @@ def create_bot():
             await bot.join_channel(after.voice_channel or before.voice_channel)
 
             user_music = bot.users_music.get(before.id)
+            await asyncio.sleep(MusicBot.GREETINGS_DELAY)
             if user_music:
                 user_music = user_music.get('intro' if after.voice_channel else 'outro')
                 if user_music:
-                    bot.player = bot.voice_channel.create_ffmpeg_player(user_music)
+                    bot.player = bot.voice_channel.create_ffmpeg_player(path.join(bot.USERS_DIR, user_music))
                     bot.player.volume = bot.volume
-                    await asyncio.sleep(MusicBot.GREETINGS_DELAY)
                     bot.player.start()
                     return
 
-            await asyncio.sleep(MusicBot.GREETINGS_DELAY)
             await bot.tts(after.voice_channel, '%s %s' % ('Привет' if after.voice_channel else 'Пока',
                                                           after.name))
 
@@ -264,8 +301,24 @@ def create_bot():
         await bot.add_user_music(user, url, False)
 
     @bot.command()
+    @commands.check(MusicBot.check_user)
+    async def rintro(user: Member):
+        await bot.remove_user_music(user, True)
+
+    @bot.command()
+    @commands.check(MusicBot.check_user)
+    async def routro(user: Member):
+        await bot.remove_user_music(user, False)
+
+    @bot.command()
     async def echo(message):
         await bot.say('echo:%s' % message)
+
+    @bot.command(pass_context=True)
+    @commands.check(MusicBot.check_user)
+    async def tts(ctx):
+        await bot.tts(ctx.message.author.voice_channel,
+                      ctx.message.clean_content.replace(ctx.prefix + ctx.invoked_with, '').strip())
 
     @bot.command()
     @commands.check(MusicBot.check_user)
@@ -312,7 +365,7 @@ def create_bot():
             bot.music_commands[command] = command_file
             bot.add_music_command(command)
             await bot.say('Добавил команду "%s" для песни "%s"' % (command, os.path.basename(url)))
-            await bot.save_cfg()
+            bot.save_cfg()
         else:
             await bot.say('Команда "%s" уже добавлена' % command)
 
@@ -322,7 +375,7 @@ def create_bot():
         if bot.remove_command(command):
             bot.music_commands.pop(command, None)
             await bot.say('Команада "%s" удалена' % command)
-            await bot.save_cfg()
+            bot.save_cfg()
         else:
             await bot.say('Команда "%s" не найдена' % command)
 
@@ -333,7 +386,7 @@ def create_bot():
 
     @bot.command(pass_context=True)
     async def jakub(ctx, a):
-        await bot.play(ctx.message.author.voice_channel, seidisnilyu(a))
+        await bot.play(ctx.message.author.voice_channel, seidisnilyu(a), True)
 
     @bot.event
     async def on_command_error(event_method, ctx):
@@ -345,8 +398,9 @@ def create_bot():
         command2 = min(ctx.bot.music_commands.keys(), key=lambda x: editdistance.eval(command, x))
         min2 = editdistance.eval(command, command2)
 
-        await bot.play(ctx.message.author.voice_channel,
-                       ctx.bot.music_commands[command1 if min1 <= min2 else command2])
+        if min(min1, min2) <= 3:
+            await bot.play(ctx.message.author.voice_channel,
+                           ctx.bot.music_commands[command1 if min1 <= min2 else command2])
 
     return bot
 

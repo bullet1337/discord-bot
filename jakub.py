@@ -1,9 +1,9 @@
 import glob
+import os
 import random
 import re
 import time
 from collections import defaultdict
-import os
 from os import path, makedirs
 
 from pydub import AudioSegment
