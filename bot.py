@@ -118,7 +118,10 @@ class MusicBot(Bot):
 
     async def join_channel(self, channel):
         if not self.connection.voice_clients:
-            self.voice_channel = await self.join_voice_channel(channel)
+            try:
+                self.voice_channel = await self.join_voice_channel(channel)
+            except TimeoutError:
+                return
         else:
             await self.voice_channel.move_to(channel)
 
@@ -340,6 +343,15 @@ def create_bot():
 
     @bot.command()
     @commands.check(MusicBot.check_user)
+    async def vs(message):
+        if message.isdigit():
+            volume = int(message)
+            if 0 <= volume <= 200:
+                bot.volume = volume / 100
+                await bot.say(bot.get_volume_str())
+
+    @bot.command()
+    @commands.check(MusicBot.check_user)
     async def stop():
         if bot.player:
             bot.player.stop()
@@ -347,6 +359,11 @@ def create_bot():
     @bot.command()
     async def v():
         await bot.say(bot.get_volume_str())
+
+    @bot.command()
+    @commands.check(MusicBot.check_user)
+    async def reboot():
+        exit(0)
 
     @bot.command()
     @commands.check(MusicBot.check_user)
@@ -384,7 +401,8 @@ def create_bot():
 
     @bot.command(pass_context=True)
     async def jakub(ctx, a):
-        await bot.play(ctx.message.author.voice_channel, seidisnilyu(a), True)
+        file = seidisnilyu(a)
+        await bot.play(ctx.message.author.voice_channel, file, True and path.basename(path.dirname(file)) != 'audio')
 
     @bot.event
     async def on_command_error(event_method, ctx):
