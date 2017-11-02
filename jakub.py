@@ -115,7 +115,7 @@ def get_random(audio_map, number):
 def seidisnilyu(a):
     if a:
         if a.isdigit():
-            result = jakub(str(a))
+            result = jakub(str(int(a)))
             if result:
                 print(result)
                 return concat(result, str(a))

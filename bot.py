@@ -26,6 +26,7 @@ from jakub import seidisnilyu
 class MusicBot(Bot):
     SCRIPT_DIR = path.dirname(path.realpath(__file__))
     CONFIG_PATH = path.join(SCRIPT_DIR, 'config.json')
+    LEVENSHTEIN_THRESHOLD = 6
     SWITCH_TIME = 5
     GREETINGS_DELAY = 0.1
     VOLUME_STEP = 0.1
@@ -87,7 +88,6 @@ class MusicBot(Bot):
                         self.users_music[user_id][type] = os.path.basename(file)
 
         self.save_cfg()
-
 
     @staticmethod
     def check_user(ctx):
@@ -184,10 +184,8 @@ class MusicBot(Bot):
 
             await self.join_channel(channel)
 
-            after = None
-            if delete:
-                after = lambda: os.remove(file)
-            self.player = self.voice_channel.create_ffmpeg_player(file, after=after)
+            self.player = self.voice_channel.create_ffmpeg_player(file,
+                                                                  after=(lambda: os.remove(file)) if delete else None)
             self.player.volume = self.volume
             self.player.start()
 
@@ -267,7 +265,7 @@ def create_bot():
                     await bot.play(after.voice_channel,
                                    bot.create_phrase(bot.warnings_map[bot.users_warnings[after.id]], after.name),
                                    True)
-                    if bot.users_warnings[after.id] >= 3:
+                    if bot.users_warnings[after.id] >= MusicBot.LEVENSHTEIN_THRESHOLD:
                         bot.users_warnings[after.id] = 0
                     return
 
@@ -287,8 +285,8 @@ def create_bot():
                     bot.player.start()
                     return
 
-            await bot.tts(after.voice_channel, '%s %s' % ('Привет' if after.voice_channel else 'Пока',
-                                                          after.name))
+            await bot.tts(after.voice_channel or before.voice_channel,
+                          '%s %s' % ('Привет' if after.voice_channel else 'Пока', after.name))
 
     @bot.command()
     @commands.check(MusicBot.check_user)
