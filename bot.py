@@ -13,6 +13,7 @@ from urllib import request
 
 import editdistance as editdistance
 import youtube_dl as youtube_dl
+from discord import ChannelType
 from discord import Member
 from discord.ext import commands
 from discord.ext.commands import Bot
@@ -31,8 +32,6 @@ class MusicBot(Bot):
     GREETINGS_DELAY = 0.1
     VOLUME_STEP = 0.1
     DBFS = -10
-    TOKEN = 'MzcwODcyNDAzNDAxOTAwMDMz.DMtZZg.SiNxXQ7nOWhrSTzMk8aFcJxJQIs'
-    ADMIN_IDS = ['263783673344557089', '239737410932572160', '242716686791344129']
     warnings_map = {
         1: 'ugomonis',
         2: 'ostanovis',
@@ -43,6 +42,7 @@ class MusicBot(Bot):
         super().__init__(command_prefix, formatter=None, description=None, pm_help=False, **options)
         AudioSegment.converter = 'ffmpeg' if os.name == 'posix' else 'ffmpeg.exe'
 
+        self.follow_id = None
         self.voice_channel = None
         self.volume = 0.3
         self.player = None
@@ -51,6 +51,8 @@ class MusicBot(Bot):
         self.users_warnings = defaultdict(int)
 
         cfg = MusicBot.load_cfg()
+        self.TOKEN = cfg['TOKEN']
+        MusicBot.ADMIN_IDS = cfg['ADMIN_IDS']
         self.MUSIC_DIR = path.join(MusicBot.SCRIPT_DIR, cfg.get('MUSIC_DIR', 'music'))
         self.COMMANDS_DIR = path.join(self.MUSIC_DIR, cfg.get('COMMANDS_DIR', 'command'))
         self.USERS_DIR = path.join(self.MUSIC_DIR, cfg.get('USERS_DIR', 'users'))
@@ -95,6 +97,8 @@ class MusicBot(Bot):
 
     def save_cfg(self):
         cfg = {
+            'TOKEN': self.TOKEN,
+            'ADMIN_IDS': self.ADMIN_IDS,
             'MUSIC_DIR': path.basename(self.MUSIC_DIR),
             'COMMANDS_DIR': path.basename(self.COMMANDS_DIR),
             'USERS_DIR': path.basename(self.USERS_DIR),
@@ -117,6 +121,21 @@ class MusicBot(Bot):
             return {}
 
     async def join_channel(self, channel):
+        if self.voice_channel == channel:
+            return
+
+        if self.follow_id:
+            found = False
+            for x_channel in self.get_all_channels():
+                if x_channel.type == ChannelType.voice:
+                    for member in x_channel.voice_members:
+                        if member.id == self.follow_id:
+                            channel = x_channel
+                            found = True
+                            break
+                    if found:
+                        break
+
         if not self.connection.voice_clients:
             try:
                 self.voice_channel = await self.join_voice_channel(channel)
@@ -126,7 +145,7 @@ class MusicBot(Bot):
             await self.voice_channel.move_to(channel)
 
     def run(self):
-        super(MusicBot, self).run(MusicBot.TOKEN)
+        super(MusicBot, self).run(self.TOKEN)
 
     def add_music_command(self, command):
         @self.command(name=command, pass_context=True)
@@ -265,11 +284,11 @@ def create_bot():
                 bot.users_entries[after.voice_channel] = datetime.now()
                 if last_entry and (bot.users_entries[after.voice_channel] - last_entry).seconds <= MusicBot.SWITCH_TIME:
                     bot.users_warnings[after.id] += 1
+                    if bot.users_warnings[after.id] >= len(MusicBot.warnings_map):
+                        bot.users_warnings[after.id] = 1
                     await bot.play(after.voice_channel,
                                    bot.create_phrase(bot.warnings_map[bot.users_warnings[after.id]], after.name),
                                    True)
-                    if bot.users_warnings[after.id] >= MusicBot.LEVENSHTEIN_THRESHOLD:
-                        bot.users_warnings[after.id] = 0
                     return
 
             if bot.player:
@@ -290,6 +309,18 @@ def create_bot():
 
             await bot.tts(after.voice_channel or before.voice_channel,
                           '%s %s' % ('Привет' if after.voice_channel else 'Пока', after.name))
+
+    @bot.command()
+    @commands.check(MusicBot.check_user)
+    async def follow(user: Member):
+        if user.voice_channel:
+            await bot.join_channel(user.voice_channel)
+        bot.follow_id = user.id
+
+    @bot.command()
+    @commands.check(MusicBot.check_user)
+    async def unfollow():
+        bot.follow_id = None
 
     @bot.command()
     @commands.check(MusicBot.check_user)
