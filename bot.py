@@ -212,7 +212,7 @@ class MusicBot(Bot):
             self.player.start()
 
     async def add_user_music(self, user, url, intro=True):
-        url = self.check_music_url(url)
+        url = self.check_music_url(url) or self.check_music_url(self.music_commands[url])
         if url is None:
             await self.say('Ошибка')
         else:
@@ -224,7 +224,7 @@ class MusicBot(Bot):
                 shutil.move(url, user_file)
             user_music = self.users_music.get(user.id)
             if user_music:
-                user_music[suffix] = user_file
+                user_music[suffix] = path.basename(user_file)
             else:
                 self.users_music[user.id] = {suffix: path.basename(user_file)}
             await self.say('%s %s для пользователя "%s" добавлено' % (suffix, path.basename(url), user.name))
