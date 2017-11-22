@@ -52,7 +52,7 @@ class MusicBot(Bot):
 
         cfg = MusicBot.load_cfg()
         self.TOKEN = cfg['TOKEN']
-        MusicBot.ADMIN_IDS = cfg['ADMIN_IDS']
+        MusicBot.ADMIN_IDS = cfg.get('ADMIN_IDS', [])
         self.MUSIC_DIR = path.join(MusicBot.SCRIPT_DIR, cfg.get('MUSIC_DIR', 'music'))
         self.COMMANDS_DIR = path.join(self.MUSIC_DIR, cfg.get('COMMANDS_DIR', 'command'))
         self.USERS_DIR = path.join(self.MUSIC_DIR, cfg.get('USERS_DIR', 'users'))
