@@ -30,11 +30,21 @@ class ChanelPlayer():
         self.voice_channel = chanel
         self.volume = 0.3
         self.player = player
+        self.stoppable = True
 
-    def play(self, file, delete=False):
+    def play(self, file, delete=False, unstoppable=False):
         if self.player:
-            self.player.stop()
+            if self.player.is_done():
+                print('done')
+                self.stoppable = True
+            else:
+                if unstoppable or self.stoppable:
+                    self.player.stop()
+                else:
+                    return
 
+        self.stoppable = not unstoppable
+        print('start: %s' % file)
         self.player \
             = self.voice_channel.create_ffmpeg_player(file, after=(lambda: os.remove(file)) if delete else None)
         self.player.volume = self.volume
@@ -67,6 +77,7 @@ class MusicBot(Bot):
         cfg = MusicBot.load_cfg()
         self.TOKEN = cfg['TOKEN']
         MusicBot.ADMIN_IDS = cfg.get('ADMIN_IDS', [])
+        MusicBot.SUPER_ADMIN_IDS = cfg.get('SUPER_ADMIN_IDS', [])
         self.MUSIC_DIR = path.join(MusicBot.SCRIPT_DIR, cfg.get('MUSIC_DIR', 'music'))
         self.COMMANDS_DIR = path.join(self.MUSIC_DIR, cfg.get('COMMANDS_DIR', 'command'))
         self.USERS_DIR = path.join(self.MUSIC_DIR, cfg.get('USERS_DIR', 'users'))
@@ -120,6 +131,7 @@ class MusicBot(Bot):
         cfg = {
             'TOKEN': self.TOKEN,
             'ADMIN_IDS': self.ADMIN_IDS,
+            'SUPER_ADMIN_IDS': self.SUPER_ADMIN_IDS,
             'MUSIC_DIR': path.basename(self.MUSIC_DIR),
             'COMMANDS_DIR': path.basename(self.COMMANDS_DIR),
             'USERS_DIR': path.basename(self.USERS_DIR),
@@ -173,7 +185,8 @@ class MusicBot(Bot):
     def add_music_command(self, command):
         @self.command(name=command, pass_context=True)
         async def play_command(ctx):
-            await self.play(ctx.message.author.voice_channel, self.music_commands[command])
+            await self.play(ctx.message.author.voice_channel, self.music_commands[command],
+                            unstoppable=ctx.message.author.id in self.SUPER_ADMIN_IDS)
 
     def get_volume_str(self):
         volumes = int(self.volume / 0.1)
@@ -217,15 +230,15 @@ class MusicBot(Bot):
             print(e)
             return None
 
-    async def tts(self, channel, text):
+    async def tts(self, channel, text, bot=False):
         temp_file = path.join(self.UTILS_DIR, '%d.mp3' % random.randint(0, 10000))
         gTTS(text=text, lang='ru').save(temp_file)
-        await self.play(channel, temp_file, True)
+        await self.play(channel, temp_file, delete=True, unstoppable=bot)
 
-    async def play(self, channel, file, delete=False):
+    async def play(self, channel, file, delete=False, unstoppable=False):
         if channel:
             await self.join_channel(channel)
-            self.players[channel.server].play(file, delete)
+            self.players[channel.server].play(file, delete=delete, unstoppable=unstoppable)
 
     async def add_user_music(self, user, url, intro=True):
         url = self.check_music_url(url) or self.check_music_url(self.music_commands[url])
@@ -304,7 +317,7 @@ def create_bot():
                         bot.users_warnings[after.id] = 1
                     await bot.play(after.voice_channel,
                                    bot.create_phrase(bot.warnings_map[bot.users_warnings[after.id]], after.name),
-                                   True)
+                                   delete=True, unstoppable=True)
                     return
 
             print('%s: %s -> %s' % (before.name, before.voice_channel, after.voice_channel))
@@ -316,11 +329,12 @@ def create_bot():
             if user_music:
                 user_music = user_music.get('intro' if after.voice_channel else 'outro')
                 if user_music:
-                    bot.players[after.server].play(path.join(bot.USERS_DIR, user_music))
+                    bot.players[after.server].play(path.join(bot.USERS_DIR, user_music), delete=False, unstoppable=True)
                     return
 
             await bot.tts(after.voice_channel or before.voice_channel,
-                          '%s %s' % ('Привет' if after.voice_channel else 'Пока', after.name))
+                          '%s %s' % ('Привет' if after.voice_channel else 'Пока', after.name),
+                          bot=True)
 
     @bot.command()
     @commands.check(MusicBot.check_user)
@@ -445,7 +459,7 @@ def create_bot():
     @bot.command(pass_context=True)
     async def jakub(ctx, a):
         file = seidisnilyu(a)
-        await bot.play(ctx.message.author.voice_channel, file, True and path.basename(path.dirname(file)) != 'audio')
+        await bot.play(ctx.message.author.voice_channel, file, delete=path.basename(path.dirname(file)) != 'audio')
 
     @bot.event
     async def on_command_error(event_method, ctx):
@@ -459,7 +473,8 @@ def create_bot():
 
         if min(min1, min2) <= 3:
             await bot.play(ctx.message.author.voice_channel,
-                           ctx.bot.music_commands[command1 if min1 <= min2 else command2])
+                           ctx.bot.music_commands[command1 if min1 <= min2 else command2],
+                           unstoppable=ctx.message.author.id in bot.SUPER_ADMIN_IDS)
 
     return bot
 
