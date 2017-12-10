@@ -24,6 +24,23 @@ from transliterate import translit
 from jakub import seidisnilyu
 
 
+class ChanelPlayer():
+    def __init__(self, chanel=None, player=None):
+        self.follow_id = None
+        self.voice_channel = chanel
+        self.volume = 0.3
+        self.player = player
+
+    def play(self, file, delete=False):
+        if self.player:
+            self.player.stop()
+
+        self.player \
+            = self.voice_channel.create_ffmpeg_player(file, after=(lambda: os.remove(file)) if delete else None)
+        self.player.volume = self.volume
+        self.player.start()
+
+
 class MusicBot(Bot):
     SCRIPT_DIR = path.dirname(path.realpath(__file__))
     CONFIG_PATH = path.join(SCRIPT_DIR, 'config.json')
@@ -42,10 +59,7 @@ class MusicBot(Bot):
         super().__init__(command_prefix, formatter=None, description=None, pm_help=False, **options)
         AudioSegment.converter = 'ffmpeg' if os.name == 'posix' else 'ffmpeg.exe'
 
-        self.follow_id = None
-        self.voice_channel = None
-        self.volume = 0.3
-        self.player = None
+        self.players = defaultdict(ChanelPlayer)
         self.music_commands = {}
         self.users_entries = {}
         self.users_warnings = defaultdict(int)
@@ -57,20 +71,27 @@ class MusicBot(Bot):
         self.COMMANDS_DIR = path.join(self.MUSIC_DIR, cfg.get('COMMANDS_DIR', 'command'))
         self.USERS_DIR = path.join(self.MUSIC_DIR, cfg.get('USERS_DIR', 'users'))
         self.UTILS_DIR = path.join(self.MUSIC_DIR, 'utils')
+
         if not path.exists(self.COMMANDS_DIR):
             os.makedirs(self.COMMANDS_DIR)
         if not path.exists(self.USERS_DIR):
             os.makedirs(self.USERS_DIR)
+
         for command in cfg.get('commands', []):
-            if command['type'] == 'command' and path.exists(path.join(self.COMMANDS_DIR, command['file'])):
-                self.music_commands[command['command']] = path.join(self.COMMANDS_DIR, command['file'])
+            file = path.join(self.COMMANDS_DIR, command['file'])
+            if command['type'] == 'command' and path.exists(file):
+                if path.splitext(path.basename(command['file']))[0] != command['command']:
+                    newfile = path.join(self.COMMANDS_DIR, command['command'] + path.splitext(path.basename(file))[1])
+                    os.rename(file, newfile)
+                    file = newfile
+                self.music_commands[command['command']] = file
                 self.add_music_command(command['command'])
-        music_files = set(self.music_commands.values())
+
         for file in os.listdir(self.COMMANDS_DIR):
             file = path.join(self.COMMANDS_DIR, file)
             if path.isfile(file):
                 command = os.path.splitext(os.path.basename(file))[0]
-                if command not in self.music_commands and file not in music_files \
+                if command not in self.music_commands and file not in self.music_commands.values() \
                         and not re.findall('[ \t\n]', command):
                     self.music_commands[command] = file
                     self.add_music_command(command)
@@ -121,30 +142,30 @@ class MusicBot(Bot):
             return {}
 
     async def join_channel(self, channel):
-        if self.voice_channel and self.voice_channel.channel == channel:
+        channel_player = self.players[channel.server]
+
+        if channel_player.voice_channel and channel_player.voice_channel.channel == channel:
             return
 
-        if self.follow_id:
+        if channel_player.follow_id:
             found = False
             for x_channel in self.get_all_channels():
                 if x_channel.type == ChannelType.voice:
                     for member in x_channel.voice_members:
-                        if member.id == self.follow_id:
+                        if member.id == channel_player.follow_id:
                             channel = x_channel
                             found = True
                             break
                     if found:
                         break
 
-        if channel.server.id not in self.connection._voice_clients:
+        if not channel_player.voice_channel:
             try:
-                self.voice_channel = await self.join_voice_channel(channel)
+                channel_player.voice_channel = await self.join_voice_channel(channel)
             except TimeoutError:
                 return
         else:
-            await self.connection._voice_clients[channel.server.id].move_to(channel)
-            self.voice_channel = self.connection._voice_clients[channel.server.id]
-
+            await channel_player.voice_channel.move_to(channel)
 
     def run(self):
         super(MusicBot, self).run(self.TOKEN)
@@ -203,15 +224,8 @@ class MusicBot(Bot):
 
     async def play(self, channel, file, delete=False):
         if channel:
-            if self.player:
-                self.player.stop()
-
             await self.join_channel(channel)
-
-            self.player = self.voice_channel.create_ffmpeg_player(file,
-                                                                  after=(lambda: os.remove(file)) if delete else None)
-            self.player.volume = self.volume
-            self.player.start()
+            self.players[channel.server].play(file, delete)
 
     async def add_user_music(self, user, url, intro=True):
         url = self.check_music_url(url) or self.check_music_url(self.music_commands[url])
@@ -235,7 +249,7 @@ class MusicBot(Bot):
     async def remove_user_music(self, user, intro=True):
         suffix = 'intro' if intro else 'outro'
         if user.id in self.users_music and suffix in self.users_music[user.id]:
-            #os.remove(path.join(self.USERS_DIR, '%s_%s.mp3' % (user.id, suffix)))
+            os.remove(path.join(self.USERS_DIR, '%s_%s.mp3' % (user.id, suffix)))
             await self.say('%s для пользователя "%s" удалено' % (suffix, user.name))
             self.users_music[user.id].pop(suffix)
 
@@ -293,8 +307,6 @@ def create_bot():
                                    True)
                     return
 
-            if bot.player:
-                bot.player.stop()
             print('%s: %s -> %s' % (before.name, before.voice_channel, after.voice_channel))
 
             await bot.join_channel(after.voice_channel or before.voice_channel)
@@ -304,9 +316,7 @@ def create_bot():
             if user_music:
                 user_music = user_music.get('intro' if after.voice_channel else 'outro')
                 if user_music:
-                    bot.player = bot.voice_channel.create_ffmpeg_player(path.join(bot.USERS_DIR, user_music))
-                    bot.player.volume = bot.volume
-                    bot.player.start()
+                    bot.players[after.server].play(path.join(bot.USERS_DIR, user_music))
                     return
 
             await bot.tts(after.voice_channel or before.voice_channel,
@@ -317,12 +327,12 @@ def create_bot():
     async def follow(user: Member):
         if user.voice_channel:
             await bot.join_channel(user.voice_channel)
-        bot.follow_id = user.id
+        bot.players[user.server].follow_id = user.id
 
-    @bot.command()
+    @bot.command(pass_context=True)
     @commands.check(MusicBot.check_user)
-    async def unfollow():
-        bot.follow_id = None
+    async def unfollow(ctx):
+        bot.players[ctx.msg.server].follow_id = None
 
     @bot.command()
     @commands.check(MusicBot.check_user)
