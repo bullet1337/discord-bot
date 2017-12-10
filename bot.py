@@ -35,7 +35,6 @@ class ChanelPlayer():
     def play(self, file, delete=False, unstoppable=False):
         if self.player:
             if self.player.is_done():
-                print('done')
                 self.stoppable = True
             else:
                 if unstoppable or self.stoppable:
@@ -44,11 +43,14 @@ class ChanelPlayer():
                     return
 
         self.stoppable = not unstoppable
-        print('start: %s' % file)
         self.player \
             = self.voice_channel.create_ffmpeg_player(file, after=(lambda: os.remove(file)) if delete else None)
         self.player.volume = self.volume
         self.player.start()
+
+    def get_volume_str(self):
+        volumes = int(self.volume / 0.1)
+        return '[' + '=' * volumes + '   ' * (20 - volumes) + '] %d%%' % (round(self.volume * 100))
 
 
 class MusicBot(Bot):
@@ -187,10 +189,6 @@ class MusicBot(Bot):
         async def play_command(ctx):
             await self.play(ctx.message.author.voice_channel, self.music_commands[command],
                             unstoppable=ctx.message.author.id in self.SUPER_ADMIN_IDS)
-
-    def get_volume_str(self):
-        volumes = int(self.volume / 0.1)
-        return '[' + '=' * volumes + '   ' * (20 - volumes) + '] %d%%' % (round(self.volume * 100))
 
     def check_music_url(self, url):
         if not path.exists(url):
@@ -378,51 +376,56 @@ def create_bot():
         await bot.tts(ctx.message.author.voice_channel,
                       ctx.message.clean_content.replace(ctx.prefix + ctx.invoked_with, '').strip())
 
-    @bot.command()
+    @bot.command(pass_context=True)
     @commands.check(MusicBot.check_user)
-    async def vu():
-        bot.volume += MusicBot.VOLUME_STEP
+    async def vu(ctx):
+        channel_player = bot.players[ctx.message.server]
+        channel_player.volume += MusicBot.VOLUME_STEP
 
-        if bot.volume > 2.0:
-            bot.volume = 2.0
+        if channel_player.volume > 2.0:
+            channel_player.volume = 2.0
             await bot.say('Максимальная громкость')
-        await bot.say(bot.get_volume_str())
+        await bot.say(channel_player.get_volume_str())
 
-    @bot.command()
+    @bot.command(pass_context=True)
     @commands.check(MusicBot.check_user)
-    async def vd():
-        bot.volume -= MusicBot.VOLUME_STEP
+    async def vd(ctx):
+        channel_player = bot.players[ctx.message.server]
+        channel_player.volume -= MusicBot.VOLUME_STEP
 
-        if bot.volume <= 0:
-            bot.volume = 0
+        if channel_player.volume <= 0:
+            channel_player.volume = 0
             await bot.say('Бота не слышно')
-        await bot.say(bot.get_volume_str())
+        await bot.say(channel_player.get_volume_str())
 
-    @bot.command()
+    @bot.command(pass_context=True)
     @commands.check(MusicBot.check_user)
-    async def vs(message):
+    async def vs(ctx, message):
         if message.isdigit():
             volume = int(message)
             if 0 <= volume <= 200:
-                bot.volume = volume / 100
-                await bot.say(bot.get_volume_str())
+                channel_player = bot.players[ctx.message.server]
+                channel_player.volume = volume / 100
+                await bot.say(channel_player.get_volume_str())
 
-    @bot.command()
+    @bot.command(pass_context=True)
     @commands.check(MusicBot.check_user)
-    async def stop():
-        if bot.player:
-            bot.player.stop()
+    async def stop(ctx):
+        channel_player = bot.players[ctx.message.server]
+        if channel_player.player:
+            if ctx.message.author.id in bot.SUPER_ADMIN_IDS or channel_player.stoppable:
+                channel_player.player.stop()
 
-    @bot.command()
-    async def v():
-        await bot.say(bot.get_volume_str())
+    @bot.command(pass_context=True)
+    async def v(ctx):
+        await bot.say(bot.players[ctx.message.server].get_volume_str())
 
     @bot.command()
     @commands.check(MusicBot.check_user)
     async def reboot():
         exit(0)
 
-    @bot.command()
+    @bot.command(pass_context=True)
     @commands.check(MusicBot.check_user)
     async def add(command, url):
         url = bot.check_music_url(url)
