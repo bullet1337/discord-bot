@@ -305,14 +305,23 @@ def create_bot():
 
     @bot.event
     async def on_voice_state_update(before, after):
-        if not before.bot and before.voice_channel != after.voice_channel:
+        if not before.bot and before.voice_channel != after.voice_channel \
+                and after.voice_channel and after.voice_channel.name != 'pomoika':
             if after.voice_channel:
                 last_entry = bot.users_entries.get(after.voice_channel)
                 bot.users_entries[after.voice_channel] = datetime.now()
                 if last_entry and (bot.users_entries[after.voice_channel] - last_entry).seconds <= MusicBot.SWITCH_TIME:
                     bot.users_warnings[after.id] += 1
+                    print(bot.users_warnings[after.id])
                     if bot.users_warnings[after.id] >= len(MusicBot.warnings_map):
-                        bot.users_warnings[after.id] = 1
+                        for ch in after.server.channels:
+                            if ch.name == 'pomoika' and ch.type == ChannelType.voice:
+                                channel = ch
+                                break
+                        else:
+                            channel = await bot.create_channel(after.server, 'pomoika', type=ChannelType.voice)
+                        await bot.move_member(after, channel)
+                        bot.users_warnings[after.id] = 0
                     await bot.play(after.voice_channel,
                                    bot.create_phrase(bot.warnings_map[bot.users_warnings[after.id]], after.name),
                                    delete=True, unstoppable=True)
@@ -333,6 +342,11 @@ def create_bot():
             await bot.tts(after.voice_channel or before.voice_channel,
                           '%s %s' % ('Привет' if after.voice_channel else 'Пока', after.name),
                           bot=True)
+
+    @bot.check
+    def pomoika(ctx):
+        ch = ctx.message.author.voice_channel
+        return ch and ch.name != 'pomoika'
 
     @bot.command()
     @commands.check(MusicBot.check_user)
@@ -466,6 +480,9 @@ def create_bot():
 
     @bot.event
     async def on_command_error(event_method, ctx):
+        if not ctx.bot.music_commands.keys():
+            return
+
         command = re.sub(r'([aeuioауеэоаыяию])+$', r'\1', ctx.invoked_with, flags=re.IGNORECASE)
         command1 = min(ctx.bot.music_commands.keys(), key=lambda x: editdistance.eval(command, x))
         min1 = editdistance.eval(command, command1)
