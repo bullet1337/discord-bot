@@ -16,7 +16,7 @@ import youtube_dl as youtube_dl
 from discord import ChannelType
 from discord import Member
 from discord.ext import commands
-from discord.ext.commands import Bot
+from discord.ext.commands import Bot, CheckFailure
 from gtts import gTTS
 from pydub import AudioSegment
 from transliterate import translit
@@ -158,9 +158,6 @@ class MusicBot(Bot):
     async def join_channel(self, channel):
         channel_player = self.players[channel.server]
 
-        if channel_player.voice_channel and channel_player.voice_channel.channel == channel:
-            return
-
         if channel_player.follow_id:
             found = False
             for x_channel in self.get_all_channels():
@@ -172,6 +169,9 @@ class MusicBot(Bot):
                             break
                     if found:
                         break
+
+        if channel_player.voice_channel and channel_player.voice_channel.channel == channel:
+            return
 
         if not channel_player.voice_channel:
             try:
@@ -312,7 +312,9 @@ def create_bot():
                 bot.users_entries[after.voice_channel] = datetime.now()
                 if last_entry and (bot.users_entries[after.voice_channel] - last_entry).seconds <= MusicBot.SWITCH_TIME:
                     bot.users_warnings[after.id] += 1
-                    print(bot.users_warnings[after.id])
+                    await bot.play(after.voice_channel,
+                                   bot.create_phrase(bot.warnings_map[bot.users_warnings[after.id]], after.name),
+                                   delete=True, unstoppable=True)
                     if bot.users_warnings[after.id] >= len(MusicBot.warnings_map):
                         for ch in after.server.channels:
                             if ch.name == 'pomoika' and ch.type == ChannelType.voice:
@@ -322,9 +324,6 @@ def create_bot():
                             channel = await bot.create_channel(after.server, 'pomoika', type=ChannelType.voice)
                         await bot.move_member(after, channel)
                         bot.users_warnings[after.id] = 0
-                    await bot.play(after.voice_channel,
-                                   bot.create_phrase(bot.warnings_map[bot.users_warnings[after.id]], after.name),
-                                   delete=True, unstoppable=True)
                     return
 
             print('%s: %s -> %s' % (before.name, before.voice_channel, after.voice_channel))
@@ -358,7 +357,7 @@ def create_bot():
     @bot.command(pass_context=True)
     @commands.check(MusicBot.check_user)
     async def unfollow(ctx):
-        bot.players[ctx.msg.server].follow_id = None
+        bot.players[ctx.message.server].follow_id = None
 
     @bot.command()
     @commands.check(MusicBot.check_user)
@@ -480,7 +479,7 @@ def create_bot():
 
     @bot.event
     async def on_command_error(event_method, ctx):
-        if not ctx.bot.music_commands.keys():
+        if not ctx.bot.music_commands.keys() or isinstance(event_method, CheckFailure):
             return
 
         command = re.sub(r'([aeuioауеэоаыяию])+$', r'\1', ctx.invoked_with, flags=re.IGNORECASE)
@@ -497,6 +496,7 @@ def create_bot():
                            unstoppable=ctx.message.author.id in bot.SUPER_ADMIN_IDS)
 
     return bot
+
 
 if __name__ == '__main__':
     create_bot().run()
