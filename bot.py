@@ -1,4 +1,3 @@
-#!/usr/bin/python3.5
 import asyncio
 import json
 import os
@@ -67,8 +66,12 @@ class MusicBot(Bot):
         3: 'final'
     }
 
-    def __init__(self, command_prefix, **options):
-        super().__init__(command_prefix, formatter=None, description=None, pm_help=False, **options)
+    def __init__(self, **options):
+        self.cfg = MusicBot.load_cfg()
+
+        super().__init__(command_prefix=commands.when_mentioned_or(self.cfg['PREFIX']),
+                         formatter=None, description=None, pm_help=False, **options)
+
         AudioSegment.converter = 'ffmpeg' if os.name == 'posix' else 'ffmpeg.exe'
 
         self.players = defaultdict(ChanelPlayer)
@@ -76,13 +79,12 @@ class MusicBot(Bot):
         self.users_entries = {}
         self.users_warnings = defaultdict(int)
 
-        cfg = MusicBot.load_cfg()
-        self.TOKEN = cfg['TOKEN']
-        MusicBot.ADMIN_IDS = cfg.get('ADMIN_IDS', [])
-        MusicBot.SUPER_ADMIN_IDS = cfg.get('SUPER_ADMIN_IDS', [])
-        self.MUSIC_DIR = path.join(MusicBot.SCRIPT_DIR, cfg.get('MUSIC_DIR', 'music'))
-        self.COMMANDS_DIR = path.join(self.MUSIC_DIR, cfg.get('COMMANDS_DIR', 'command'))
-        self.USERS_DIR = path.join(self.MUSIC_DIR, cfg.get('USERS_DIR', 'users'))
+        self.TOKEN = self.cfg['TOKEN']
+        MusicBot.ADMIN_IDS = self.cfg.get('ADMIN_IDS', [])
+        MusicBot.SUPER_ADMIN_IDS = self.cfg.get('SUPER_ADMIN_IDS', [])
+        self.MUSIC_DIR = path.join(MusicBot.SCRIPT_DIR, self.cfg.get('MUSIC_DIR', 'music'))
+        self.COMMANDS_DIR = path.join(self.MUSIC_DIR, self.cfg.get('COMMANDS_DIR', 'command'))
+        self.USERS_DIR = path.join(self.MUSIC_DIR, self.cfg.get('USERS_DIR', 'users'))
         self.UTILS_DIR = path.join(self.MUSIC_DIR, 'utils')
 
         if not path.exists(self.COMMANDS_DIR):
@@ -90,7 +92,7 @@ class MusicBot(Bot):
         if not path.exists(self.USERS_DIR):
             os.makedirs(self.USERS_DIR)
 
-        for command in cfg.get('commands', []):
+        for command in self.cfg.get('commands', []):
             file = path.join(self.COMMANDS_DIR, command['file'])
             if command['type'] == 'command' and path.exists(file):
                 if path.splitext(path.basename(command['file']))[0] != command['command']:
@@ -109,7 +111,7 @@ class MusicBot(Bot):
                     self.music_commands[command] = file
                     self.add_music_command(command)
 
-        self.users_music = cfg.get('users', {})
+        self.users_music = self.cfg.get('users', {})
         for file in os.listdir(self.USERS_DIR):
             file = path.join(self.USERS_DIR, file)
             if path.isfile(file):
@@ -130,8 +132,9 @@ class MusicBot(Bot):
         return ctx.message.author.id in MusicBot.ADMIN_IDS
 
     def save_cfg(self):
-        cfg = {
+        self.cfg = {
             'TOKEN': self.TOKEN,
+            'PREFIX': self.cfg['PREFIX'],
             'ADMIN_IDS': self.ADMIN_IDS,
             'SUPER_ADMIN_IDS': self.SUPER_ADMIN_IDS,
             'MUSIC_DIR': path.basename(self.MUSIC_DIR),
@@ -145,7 +148,7 @@ class MusicBot(Bot):
         }
 
         with open(MusicBot.CONFIG_PATH, mode='w', encoding='utf8') as file:
-            json.dump(cfg, file, indent=4, ensure_ascii=False)
+            json.dump(self.cfg, file, indent=4, ensure_ascii=False)
 
     @staticmethod
     def load_cfg():
@@ -294,7 +297,7 @@ class MusicBot(Bot):
 
 
 def create_bot():
-    bot = MusicBot(command_prefix=commands.when_mentioned_or('!'))
+    bot = MusicBot()
 
     @bot.event
     async def on_ready():
@@ -438,7 +441,7 @@ def create_bot():
     async def reboot():
         exit(0)
 
-    @bot.command(pass_context=True)
+    @bot.command()
     @commands.check(MusicBot.check_user)
     async def add(command, url):
         url = bot.check_music_url(url)
